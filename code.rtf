@@ -1,0 +1,89 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2761
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 library(dplyr)\
+library(tidyr)\
+\
+# Read and combine country-level GBD CSV files\
+csv_files <- list.files(pattern = "\\\\.csv$")\
+data_list <- lapply(csv_files, read.csv)\
+df_mi <- do.call(rbind, data_list)\
+\
+# Restrict to age-standardized rates from 1990 onward\
+df_long <- subset(\
+  df_mi,\
+  year > 1989 &\
+    age_name == "Age-standardized" &\
+    metric_name == "Rate"\
+)\
+\
+# Reshape to wide format so incidence and deaths are in the same row\
+df <- pivot_wider(\
+  df_long,\
+  names_from = measure_name,\
+  values_from = c(val, upper, lower),\
+  id_cols = c(location_name, cause_name, year, sex_name)\
+)\
+\
+# Calculate mortality-to-incidence ratio (MIR)\
+df <- df %>%\
+  mutate(\
+    mir = val_Deaths / val_Incidence\
+  )\
+\
+# Estimate 95% uncertainty intervals for MIR using the delta method on the log scale\
+df <- df %>%\
+  mutate(\
+    mir = val_Deaths / val_Incidence,\
+    se_log_deaths = (log(upper_Deaths) - log(lower_Deaths)) / (2 * 1.96),\
+    se_log_incidence = (log(upper_Incidence) - log(lower_Incidence)) / (2 * 1.96),\
+    se_log_mir = sqrt(se_log_deaths^2 + se_log_incidence^2),\
+    mir_lower = exp(log(mir) - 1.96 * se_log_mir),\
+    mir_upper = exp(log(mir) + 1.96 * se_log_mir)\
+  )\
+\
+# Example: global data only\
+df_global0 <- read.csv("IHME-GBD_2021_DATA-2cc2b92e-1.csv")\
+\
+df_global0 <- subset(\
+  df_global0,\
+  year > 1989 &\
+    age_name == "Age-standardized" &\
+    metric_name == "Rate" &\
+    location_name == "Global"\
+)\
+\
+df_global <- pivot_wider(\
+  df_global0,\
+  names_from = measure_name,\
+  values_from = c(val, upper, lower),\
+  id_cols = c(location_name, cause_name, year, sex_name)\
+) %>%\
+  mutate(\
+    mir = val_Deaths / val_Incidence,\
+    se_log_deaths = (log(upper_Deaths) - log(lower_Deaths)) / (2 * 1.96),\
+    se_log_incidence = (log(upper_Incidence) - log(lower_Incidence)) / (2 * 1.96),\
+    se_log_mir = sqrt(se_log_deaths^2 + se_log_incidence^2),\
+    mir_lower = exp(log(mir) - 1.96 * se_log_mir),\
+    mir_upper = exp(log(mir) + 1.96 * se_log_mir)\
+  )\
+\
+df_global_1990_2021 <- subset(df_global, year %in% c(1990, 2021))\
+\
+library(ggplot2)\
+\
+ggplot(\
+  subset(df_global_1990_2021, sex_name == "Both"),\
+  aes(x = cause_name, y = mir, fill = factor(year))\
+) +\
+  geom_col(position = position_dodge(width = 0.8), width = 0.8) +\
+  scale_fill_manual(\
+    values = c("1990" = "#4C9F70", "2021" = "#F39C12"),\
+    labels = c("Year 1990", "Year 2021")\
+  ) +\
+  theme_minimal() +\
+  labs(x = NULL, y = "MIR")}
